@@ -1,0 +1,47 @@
+{
+  "dataset": "LuSNAR",
+  "sequence": "Moon_1",
+  "num_frames_processed": 20,
+  "gt_format": "Custom (timestamp,x,y,z,qw,qx,qy,qz,...)",
+  "equivalence": {
+    "max_translation_diff_m": 0.0,
+    "max_rotation_diff_deg": 2.4148365394514667e-06,
+    "pass": true
+  },
+  "monolith_vs_gt": {
+    "ate": {
+      "rmse": 0.01041866977731949,
+      "mean": 0.00876898283968439,
+      "max": 0.020754095037437085,
+      "std": 0.0056261549824148304
+    },
+    "rpe": {
+      "translation_rmse": 0.007953816598785617,
+      "translation_mean": 0.0076644219337865666,
+      "translation_max": 0.013370862845875624,
+      "rotation_rmse_deg": 0.06332711512893965,
+      "rotation_mean_deg": 0.04613049437537288,
+      "rotation_max_deg": 0.18254190725964947
+    }
+  },
+  "refactored_vs_gt": {
+    "ate": {
+      "rmse": 0.01041866977731949,
+      "mean": 0.00876898283968439,
+      "max": 0.020754095037437085,
+      "std": 0.0056261549824148304
+    },
+    "rpe": {
+      "translation_rmse": 0.007953816598785617,
+      "translation_mean": 0.0076644219337865666,
+      "translation_max": 0.013370862845875624,
+      "rotation_rmse_deg": 0.06332711512893965,
+      "rotation_mean_deg": 0.04613049437537288,
+      "rotation_max_deg": 0.18254190725964947
+    }
+  },
+  "success_rate": {
+    "monolith": "20/20",
+    "refactored": "20/20"
+  }
+}

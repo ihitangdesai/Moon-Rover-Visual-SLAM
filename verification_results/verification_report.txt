@@ -1,0 +1,35 @@
+╔══════════════════════════════════════════════════════════════╗
+║         SLAM VERIFICATION REPORT — LuSNAR Dataset           ║
+╠══════════════════════════════════════════════════════════════╣
+║  Dataset:   LuSNAR / Moon_1                                  ║
+║  Frames:    20 consecutive pairs (frames 0 → 20)           ║
+║  GT format: Custom (ts,x,y,z,qw,qx,qy,qz,...)                ║
+╠══════════════════════════════════════════════════════════════╣
+║  EQUIVALENCE CHECK (Monolith vs Refactored)                  ║
+║  Max translation diff:  0.00000000 m                  ║
+║  Max rotation diff:     0.00000241 deg               ║
+║  Result:  ✓ PASS                                                  ║
+╠══════════════════════════════════════════════════════════════╣
+║  ACCURACY vs GROUND TRUTH                                    ║
+║                       Monolith      Refactored               ║
+║  ATE RMSE (m):        0.0104        0.0104              ║
+║  ATE Mean (m):        0.0088        0.0088              ║
+║  ATE Max  (m):        0.0208        0.0208              ║
+║  RPE Trans RMSE (m):  0.0080        0.0080              ║
+║  RPE Rot  RMSE (deg): 0.0633        0.0633              ║
+╠══════════════════════════════════════════════════════════════╣
+║  PROCESSING SUCCESS RATE                                      ║
+║  Monolith:    20/20 frames succeeded                      ║
+║  Refactored:  20/20 frames succeeded                      ║
+╠══════════════════════════════════════════════════════════════╣
+║  OUTPUT FILES                                                 ║
+║  verification_results/trajectory_comparison_2d.png            ║
+║  verification_results/ate_per_frame.png                       ║
+║  verification_results/rpe_per_frame.png                       ║
+║  verification_results/trajectory_3d.png                       ║
+║  verification_results/equivalence_diff.png                    ║
+║  verification_results/trajectory_monolith.csv                 ║
+║  verification_results/trajectory_refactored.csv               ║
+║  verification_results/trajectory_gt.csv                       ║
+║  verification_results/metrics_summary.json                    ║
+╚══════════════════════════════════════════════════════════════╝
