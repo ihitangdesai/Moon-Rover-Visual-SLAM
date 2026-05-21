@@ -10,8 +10,8 @@
 #SBATCH --mail-user=sc22hkd@leeds.ac.uk
 
 module load miniforge
-conda activate env
+source activate env
 
 cd /mnt/scratch/sc22hkd/project/repo
 pip install -e . --quiet
-python analyse_moon1_full_hpc.py
+python -u analyse_moon1_full_hpc.py
