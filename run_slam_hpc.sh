@@ -12,6 +12,6 @@
 module load miniforge
 conda activate env
 
-cd /mnt/scratch/sc22hkd/project
+cd /mnt/scratch/sc22hkd/project/repo
 pip install -e . --quiet
 python analyse_moon1_full_hpc.py

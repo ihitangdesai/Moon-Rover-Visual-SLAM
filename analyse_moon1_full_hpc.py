@@ -41,7 +41,7 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 OUTPUT_DIR   = Path("./moon1_analysis")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-DATASET_PATH = "/home/sc22hkd/project/LuSNAR/Moon_1"
+DATASET_PATH = "/mnt/scratch/sc22hkd/project/LuSNAR/Moon_1"
 GT_FILE      = f"{DATASET_PATH}/gt.txt"
 
 # ── Camera — LuSNAR stereo spec → CAHV ────────────────────────────────────────
