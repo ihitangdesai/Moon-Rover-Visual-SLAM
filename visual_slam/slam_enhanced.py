@@ -291,8 +291,10 @@ class EnhancedVisualSLAMWithLoopClosure:
 
         # Create final 2D trajectory map with loop closure points
         print("\nCreating final 2D trajectory map...")
-        map_path = self.original_slam.visualization_system.create_2d_trajectory_map(
-            self.original_slam.trajectory, "working_trajectory_2d_map.png"
+        _vis = self.original_slam.visualization_system
+        _map_filename = str(_vis.stereo_matches_dir.parent / "working_trajectory_2d_map.png")
+        map_path = _vis.create_2d_trajectory_map(
+            self.original_slam.trajectory, _map_filename
         )
 
         # Show interactive 3D plot
