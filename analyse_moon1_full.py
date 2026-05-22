@@ -38,7 +38,7 @@ import matplotlib.colors as mcolors
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 # ── Output / dataset paths ─────────────────────────────────────────────────────
-OUTPUT_DIR   = Path("./moon1_analysis")
+OUTPUT_DIR   = Path("/media/hitang-desai/T7 Shield/slam_analysis/dev_run")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 DATASET_PATH = "/media/hitang-desai/T7 Shield/LuSNAR/Moon_1"
