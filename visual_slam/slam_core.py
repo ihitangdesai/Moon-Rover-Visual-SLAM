@@ -203,22 +203,20 @@ class ImprovedVisualSLAM:
         return t, R, summary
 
     def estimate_pose_change_pnp(self, points_3d_t: List[np.ndarray],
-                                points_3d_t1: List[np.ndarray],
+                                correspondence_info: List[Dict],
                                 left_kp_t1: List) -> Tuple[np.ndarray, np.ndarray, Dict]:
         """PnP-based pose estimation for comparison."""
 
-        if len(points_3d_t1) < 4:
+        if len(correspondence_info) < 4:
             return np.zeros(3), np.eye(3), {'status': 'insufficient_points_pnp'}
 
         try:
-            # Convert 3D points to meters and extract 2D projections
-            object_points = np.array(points_3d_t1, dtype=np.float64) / 1000.0  # Convert to meters
-            image_points = np.array([kp.pt for kp in left_kp_t1[:len(points_3d_t1)]], dtype=np.float64)
-
-            # Ensure we have corresponding points
-            min_len = min(len(object_points), len(image_points))
-            object_points = object_points[:min_len]
-            image_points = image_points[:min_len]
+            # Build correctly-paired 3D-to-2D correspondences for PnP:
+            # object_points[i] is the 3D position of feature i in the t frame (in metres),
+            # image_points[i] is where that same feature appears in the t1 left image.
+            object_points = np.array(points_3d_t, dtype=np.float64) / 1000.0
+            image_points = np.array([info['kp_t1_pt'] for info in correspondence_info],
+                                    dtype=np.float64)
 
             if len(object_points) < 4:
                 return np.zeros(3), np.eye(3), {'status': 'insufficient_points_pnp'}
@@ -409,7 +407,7 @@ class ImprovedVisualSLAM:
                 # Method 2: PnP
                 try:
                     translation_pnp, rotation_pnp, pose_summary_pnp = self.estimate_pose_change_pnp(
-                        corresponding_3d_t, corresponding_3d_t1, left_kp_t1
+                        corresponding_3d_t, correspondence_info, left_kp_t1
                     )
                 except Exception as e:
                     translation_pnp, rotation_pnp = np.zeros(3), np.eye(3)
