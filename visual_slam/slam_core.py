@@ -21,7 +21,8 @@ from visual_slam.visualisation import SLAMVisualizationSystem
 class ImprovedVisualSLAM:
     """Improved Visual SLAM System with working parameters and PnP comparison"""
 
-    def __init__(self, left_cahv: Dict, right_cahv: Dict, show_lines: bool = False):
+    def __init__(self, left_cahv: Dict, right_cahv: Dict, show_lines: bool = False,
+                 output_dir=None):
         """Initialize improved Visual SLAM system."""
 
         self.left_camera = CAHVCamera(
@@ -41,7 +42,7 @@ class ImprovedVisualSLAM:
         self.asift = OptimizedASIFTMatcher(self.adaptive_params)
 
         # Custom visualization system
-        self.visualization_system = SLAMVisualizationSystem(show_lines)
+        self.visualization_system = SLAMVisualizationSystem(show_lines, output_dir=output_dir)
 
         self.show_lines = show_lines
 

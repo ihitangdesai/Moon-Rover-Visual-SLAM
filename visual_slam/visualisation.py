@@ -13,14 +13,14 @@ from typing import List, Tuple, Dict, Optional
 class SLAMVisualizationSystem:
     """Custom visualization system for stereo and temporal matches."""
 
-    def __init__(self, show_lines: bool = False):
+    def __init__(self, show_lines: bool = False, output_dir: Path = None):
         self.show_lines = show_lines
 
-        # Create output directories
-        self.stereo_matches_dir = Path("stereo_matches")
-        self.temporal_matches_dir = Path("temporal_matches")
-        self.stereo_matches_dir.mkdir(exist_ok=True)
-        self.temporal_matches_dir.mkdir(exist_ok=True)
+        base = Path(output_dir) if output_dir is not None else Path(".")
+        self.stereo_matches_dir = base / "stereo_matches"
+        self.temporal_matches_dir = base / "temporal_matches"
+        self.stereo_matches_dir.mkdir(parents=True, exist_ok=True)
+        self.temporal_matches_dir.mkdir(parents=True, exist_ok=True)
 
         self.frame_count = 0
         self.loop_closure_points = []  # Store loop closure points for final map

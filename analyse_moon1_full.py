@@ -1040,6 +1040,7 @@ def main():
         use_gtsam=True,
         enable_loop_closure=True,
         show_lines=False,
+        output_dir=OUTPUT_DIR,
     )
 
     # ── Run full sequence ────────────────────────────────────────────────────

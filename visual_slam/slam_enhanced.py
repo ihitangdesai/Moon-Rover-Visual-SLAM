@@ -22,12 +22,14 @@ class EnhancedVisualSLAMWithLoopClosure:
     def __init__(self, left_cahv: Dict, right_cahv: Dict,
                  use_gtsam: bool = True,
                  enable_loop_closure: bool = True,
-                 show_lines: bool = False):
+                 show_lines: bool = False,
+                 output_dir=None):
 
         from visual_slam import GTSAM_AVAILABLE
 
         # Initialize the working SLAM system
-        self.original_slam = ImprovedVisualSLAM(left_cahv, right_cahv, show_lines)
+        self.original_slam = ImprovedVisualSLAM(left_cahv, right_cahv, show_lines,
+                                                output_dir=output_dir)
 
         # Store configuration
         self.left_cahv = left_cahv
