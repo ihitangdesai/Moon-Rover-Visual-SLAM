@@ -442,10 +442,24 @@ class ImprovedVisualSLAM:
                     translation, rotation, pose_summary = translation_kabsch, rotation_kabsch, pose_summary_kabsch
                     chosen_method = "Kabsch+RANSAC"
 
-                # Update pose
+                # Both methods give camera motion in body frame but in different conventions:
+                #   Kabsch: gives scene motion (t_scene); invert to get camera motion.
+                #   PnP:    already gives camera motion (inverted internally).
+                # Then rotate from SLAM body frame to GT world frame:
+                #   body +Z (optical/depth axis, A=[0,0,1]) → world +X (GT forward)
+                #   body +Y                                 → world +Y
+                #   body +X (lateral)                      → world -Z
+                _R_body_to_world = np.array([[0., 0., 1.],
+                                             [0., 1., 0.],
+                                             [-1., 0., 0.]])
+                _T_body = np.eye(4)
+                _T_body[:3, :3] = rotation
+                _T_body[:3, 3] = translation
+                if chosen_method == "Kabsch+RANSAC":
+                    _T_body = np.linalg.inv(_T_body)   # scene motion → camera motion
                 transform = np.eye(4)
-                transform[:3, :3] = rotation
-                transform[:3, 3] = translation
+                transform[:3, :3] = _R_body_to_world @ _T_body[:3, :3] @ _R_body_to_world.T
+                transform[:3, 3] = _R_body_to_world @ _T_body[:3, 3]
 
                 self.current_pose = self.current_pose @ transform
                 self.trajectory.append(self.current_pose.copy())
