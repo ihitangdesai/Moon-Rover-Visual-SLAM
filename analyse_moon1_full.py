@@ -1032,7 +1032,14 @@ def main():
     print(f"  {len(gt_per_image)} GT poses matched to {len(image_timestamps)} images")
 
     # ── Initialise SLAM ──────────────────────────────────────────────────────
+    # Seed initial pose from first GT entry so the SLAM body frame is aligned
+    # with the world frame from the start. The GT rotation at frame 0 is nearly
+    # identity (~0.8°), but using it exactly removes any initial misalignment.
+    initial_pose = gt_per_image[0] if gt_per_image else None
     print("\nInitialising SLAM...")
+    if initial_pose is not None:
+        t0 = initial_pose[:3, 3]
+        print(f"  Initial pose from GT: pos=[{t0[0]:.4f},{t0[1]:.4f},{t0[2]:.4f}] m")
     np.random.seed(42)
     cv2.setRNGSeed(42)
     slam = EnhancedVisualSLAMWithLoopClosure(
@@ -1041,6 +1048,7 @@ def main():
         enable_loop_closure=True,
         show_lines=False,
         output_dir=OUTPUT_DIR,
+        initial_pose=initial_pose,
     )
 
     # ── Run full sequence ────────────────────────────────────────────────────
