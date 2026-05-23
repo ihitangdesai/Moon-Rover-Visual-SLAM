@@ -22,7 +22,7 @@ class ImprovedVisualSLAM:
     """Improved Visual SLAM System with working parameters and PnP comparison"""
 
     def __init__(self, left_cahv: Dict, right_cahv: Dict, show_lines: bool = False,
-                 output_dir=None):
+                 output_dir=None, initial_pose: np.ndarray = None):
         """Initialize improved Visual SLAM system."""
 
         self.left_camera = CAHVCamera(
@@ -46,9 +46,13 @@ class ImprovedVisualSLAM:
 
         self.show_lines = show_lines
 
-        # Initialize pose properly in meters
-        self.current_pose = np.eye(4)
-        self.current_pose[:3, 3] = np.array(left_cahv['C']) / 1000.0  # Convert to meters
+        # Initialize pose — use provided initial_pose (world frame) if given,
+        # otherwise start at identity (body frame = world frame at t=0).
+        if initial_pose is not None:
+            self.current_pose = np.array(initial_pose, dtype=np.float64)
+        else:
+            self.current_pose = np.eye(4)
+            self.current_pose[:3, 3] = np.array(left_cahv['C']) / 1000.0
         self.trajectory = [self.current_pose.copy()]
         self.frame_results = []
 
@@ -443,24 +447,27 @@ class ImprovedVisualSLAM:
                     translation, rotation, pose_summary = translation_kabsch, rotation_kabsch, pose_summary_kabsch
                     chosen_method = "Kabsch+RANSAC"
 
-                # Both methods give camera motion in body frame but in different conventions:
-                #   Kabsch: gives scene motion (t_scene); invert to get camera motion.
-                #   PnP:    already gives camera motion (inverted internally).
-                # Then rotate from SLAM body frame to GT world frame:
-                #   body +Z (optical/depth axis, A=[0,0,1]) → world +X (GT forward)
-                #   body +Y                                 → world +Y
-                #   body +X (lateral)                      → world -Z
-                _R_body_to_world = np.array([[0., 0., 1.],
-                                             [0., 1., 0.],
-                                             [-1., 0., 0.]])
-                _T_body = np.eye(4)
-                _T_body[:3, :3] = rotation
-                _T_body[:3, 3] = translation
+                # PnP and Kabsch solve in the CAHV image frame where the optical
+                # axis (A=[0,0,1]) is +Z.  The rover body frame has forward = +X
+                # (confirmed by GT: body +X ≈ world +X throughout the sequence).
+                # R_cahv_to_body rotates from CAHV frame into rover body frame:
+                #   CAHV +Z (depth/forward) → body +X
+                #   CAHV +Y (image down)    → body +Y
+                #   CAHV +X (image right)   → body -Z
+                # After this rotation, current_pose (initialised from GT) naturally
+                # propagates increments into the world frame.
+                _R_cahv_to_body = np.array([[0., 0., 1.],
+                                            [0., 1., 0.],
+                                            [-1., 0., 0.]])
+                _T_cahv = np.eye(4)
+                _T_cahv[:3, :3] = rotation
+                _T_cahv[:3, 3] = translation
                 if chosen_method == "Kabsch+RANSAC":
-                    _T_body = np.linalg.inv(_T_body)   # scene motion → camera motion
+                    _T_cahv = np.linalg.inv(_T_cahv)
+                # Express in rover body frame
                 transform = np.eye(4)
-                transform[:3, :3] = _R_body_to_world @ _T_body[:3, :3] @ _R_body_to_world.T
-                transform[:3, 3] = _R_body_to_world @ _T_body[:3, 3]
+                transform[:3, :3] = _R_cahv_to_body @ _T_cahv[:3, :3] @ _R_cahv_to_body.T
+                transform[:3, 3] = _R_cahv_to_body @ _T_cahv[:3, 3]
 
                 self.current_pose = self.current_pose @ transform
                 self.trajectory.append(self.current_pose.copy())
