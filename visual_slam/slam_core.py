@@ -233,7 +233,7 @@ class ImprovedVisualSLAM:
                 self.camera_matrix,
                 self.dist_coeffs,
                 iterationsCount=1000,
-                reprojectionError=8.0,
+                reprojectionError=2.0,
                 confidence=0.99
             )
 
