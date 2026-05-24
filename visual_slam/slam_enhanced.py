@@ -8,7 +8,7 @@ from typing import List, Dict, Optional
 
 from visual_slam.slam_core import ImprovedVisualSLAM
 from visual_slam.stereo_matching import StereoImageLoader
-from visual_slam.place_recognition import DescriptorBasedPlaceRecognition, BagOfWordsPlaceRecognizer
+from visual_slam.place_recognition import DescriptorBasedPlaceRecognition
 from visual_slam.loop_closure import SpatialTemporalLoopClosureDetector, LoopClosureManager
 from visual_slam.pose_graph.custom_optimizer import LeastSquaresPoseGraphOptimizer
 from visual_slam.pose_graph.gtsam_optimizer import GTSAMPoseGraphOptimizer
@@ -91,11 +91,6 @@ class EnhancedVisualSLAMWithLoopClosure:
                 debug=True  # ENABLE DEBUG
             )
 
-        # Phase 4: Bag-of-Words place recognizer (replaces descriptor-mean retrieval)
-        self.bow_recognizer = BagOfWordsPlaceRecognizer(
-            vocab_size=500, min_score=0.15, min_frames_gap=30
-        )
-
         # Storage for comparison data
         self.optimization_history = []
 
@@ -143,25 +138,7 @@ class EnhancedVisualSLAMWithLoopClosure:
                     current_pose = self.original_slam.current_pose
                     previous_pose = self.original_slam.trajectory[-2] if len(self.original_slam.trajectory) > 1 else None
 
-                    # Phase 4: feed into BoW recognizer (only for keyframes)
-                    is_kf = original_result.get('is_keyframe', False)
-                    if is_kf:
-                        self.bow_recognizer.add_frame(self.current_frame_id, left_desc_t1)
-                        bow_candidates = self.bow_recognizer.query(left_desc_t1, self.current_frame_id)
-                        if bow_candidates:
-                            print(f"   [BoW] Top candidate: frame {bow_candidates[0][0]} "
-                                  f"score={bow_candidates[0][1]:.3f}")
-
-                    # Phase 5: build information matrix from PnP quality
-                    pose_sum = original_result.get('pose_estimation_summary', {})
-                    _n_inliers = pose_sum.get('num_inliers', 500)
-                    _reproj    = pose_sum.get('reprojection_error', 1.0) or 1.0
-                    _quality   = np.clip(
-                        (_n_inliers / 3000.0) * (1.0 / max(_reproj, 0.1)),
-                        0.1, 10.0
-                    )
-                    _info_diag = [_quality * 100.0] * 3 + [_quality * 50.0] * 3
-                    information_matrix = np.diag(_info_diag)
+                    information_matrix = np.eye(6) * 0.1
 
                     # Store poses before optimization
                     poses_before_optimization = {}

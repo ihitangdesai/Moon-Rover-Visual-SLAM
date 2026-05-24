@@ -86,16 +86,7 @@ class GTSAMPoseGraphOptimizer:
         # Convert relative pose to GTSAM Pose3
         gtsam_relative_pose = self._numpy_to_gtsam_pose(relative_pose)
 
-        # Phase 5: derive noise model from information matrix if provided,
-        # otherwise fall back to the default odometry noise model.
-        try:
-            if information is not None and information.shape == (6, 6) and np.all(np.diag(information) > 0):
-                sigmas = 1.0 / np.sqrt(np.diag(information).clip(1e-6))
-                edge_noise = gtsam.noiseModel.Diagonal.Sigmas(sigmas)
-            else:
-                edge_noise = self.odometry_noise
-        except Exception:
-            edge_noise = self.odometry_noise
+        edge_noise = self.odometry_noise
 
         # Create between factor
         between_factor = gtsam.BetweenFactorPose3(
