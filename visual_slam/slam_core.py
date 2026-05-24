@@ -7,7 +7,6 @@ import cv2 as cv
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import time
-from collections import deque
 from typing import Tuple, List, Dict, Optional
 
 from visual_slam.data_structures import CAHVCamera
@@ -17,154 +16,6 @@ from visual_slam.correspondence_validation import Enhanced3DCorrespondenceFinder
 from visual_slam.temporal_matching import SmartTemporalMatcher
 from visual_slam.feature_extraction import OptimizedASIFTMatcher
 from visual_slam.visualisation import SLAMVisualizationSystem
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# PHASE 2 — KEYFRAME MANAGER
-# ═══════════════════════════════════════════════════════════════════════
-
-class KeyframeManager:
-    """
-    Selects keyframes based on minimum translation or rotation since last keyframe.
-    Non-keyframes still update the odometry chain — keyframe status only gates
-    the GTSAM pose graph and loop closure candidate set.
-    """
-
-    def __init__(self, min_translation: float = 0.05, min_rotation_deg: float = 1.0):
-        self.min_translation  = min_translation
-        self.min_rotation_deg = min_rotation_deg
-        self.keyframe_indices: List[int] = []
-        self.keyframe_poses:   List[np.ndarray] = []
-        self._last_kf_translation = np.zeros(3)
-        self._last_kf_rotation    = np.eye(3)
-        self._accumulated_t  = 0.0
-        self._accumulated_r  = 0.0
-
-    def is_keyframe(self, translation_m: float, rotation_deg: float) -> bool:
-        """Return True when accumulated motion since last keyframe exceeds thresholds."""
-        self._accumulated_t += translation_m
-        self._accumulated_r += rotation_deg
-        if (self._accumulated_t >= self.min_translation or
-                self._accumulated_r >= self.min_rotation_deg):
-            self._accumulated_t = 0.0
-            self._accumulated_r = 0.0
-            return True
-        return False
-
-    def add_frame(self, frame_idx: int, pose: np.ndarray,
-                  points_3d: list, descriptors: np.ndarray) -> None:
-        self.keyframe_indices.append(frame_idx)
-        self.keyframe_poses.append(pose.copy())
-
-    def get_keyframe_indices(self) -> List[int]:
-        return list(self.keyframe_indices)
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# PHASE 3 — LOCAL BUNDLE ADJUSTER (sliding-window, GTSAM)
-# ═══════════════════════════════════════════════════════════════════════
-
-class LocalBundleAdjuster:
-    """
-    Sliding-window local bundle adjustment using GTSAM GenericProjectionFactor.
-    Window = last `window_size` keyframes.  Triggers on every new keyframe.
-    Never crashes the pipeline — all exceptions are caught and logged.
-    """
-
-    def __init__(self, window_size: int = 8, camera_matrix: np.ndarray = None):
-        self.window_size   = window_size
-        self.camera_matrix = camera_matrix if camera_matrix is not None else np.eye(3)
-        self.keyframes: List[Dict] = []   # list of {idx, pose, pts3d, pts2d}
-
-        from visual_slam import GTSAM_AVAILABLE
-        self._gtsam_ok = GTSAM_AVAILABLE
-        if self._gtsam_ok:
-            print("LocalBundleAdjuster: GTSAM available — LBA enabled")
-        else:
-            print("LocalBundleAdjuster: GTSAM not available — LBA disabled")
-
-    def add_keyframe(self, keyframe_idx: int, pose_4x4: np.ndarray,
-                     points_3d_mm: list, correspondences_2d: list,
-                     camera_matrix: np.ndarray) -> None:
-        """Add keyframe to the sliding window (evicts oldest if full)."""
-        self.camera_matrix = camera_matrix
-        entry = {
-            'idx':    keyframe_idx,
-            'pose':   pose_4x4.copy(),
-            'pts3d':  np.array(points_3d_mm, dtype=np.float64) / 1000.0 if len(points_3d_mm) else np.zeros((0, 3)),
-            'pts2d':  np.array(correspondences_2d, dtype=np.float64) if len(correspondences_2d) else np.zeros((0, 2)),
-        }
-        self.keyframes.append(entry)
-        if len(self.keyframes) > self.window_size:
-            self.keyframes.pop(0)
-
-    def optimize(self) -> Dict[int, np.ndarray]:
-        """
-        Run LBA on the current window.
-        Returns {trajectory_index: optimized_pose_4x4} or {} on failure.
-        """
-        if not self._gtsam_ok or len(self.keyframes) < 2:
-            return {}
-        try:
-            import gtsam
-
-            graph    = gtsam.NonlinearFactorGraph()
-            initials = gtsam.Values()
-
-            # Tight prior on oldest pose (gauge freedom fix)
-            prior_noise = gtsam.noiseModel.Diagonal.Sigmas(
-                np.array([0.001, 0.001, 0.001, 0.001, 0.001, 0.001])
-            )
-            # Odometry noise between consecutive keyframes
-            odom_noise = gtsam.noiseModel.Diagonal.Sigmas(
-                np.array([0.05, 0.05, 0.05, 0.01, 0.01, 0.01])
-            )
-
-            # Insert pose variables
-            for i, kf in enumerate(self.keyframes):
-                sym   = gtsam.symbol_shorthand.X(i)
-                gpose = gtsam.Pose3(gtsam.Rot3(kf['pose'][:3, :3]),
-                                    gtsam.Point3(*kf['pose'][:3, 3]))
-                initials.insert(sym, gpose)
-                if i == 0:
-                    graph.add(gtsam.PriorFactorPose3(sym, gpose, prior_noise))
-
-            # Add odometry BetweenFactors for consecutive keyframes
-            for i in range(len(self.keyframes) - 1):
-                sym_a = gtsam.symbol_shorthand.X(i)
-                sym_b = gtsam.symbol_shorthand.X(i + 1)
-                Pa = self.keyframes[i]['pose']
-                Pb = self.keyframes[i + 1]['pose']
-                # Relative transform: Pa^{-1} @ Pb
-                rel = np.linalg.inv(Pa) @ Pb
-                grel = gtsam.Pose3(gtsam.Rot3(rel[:3, :3]),
-                                   gtsam.Point3(*rel[:3, 3]))
-                graph.add(gtsam.BetweenFactorPose3(sym_a, sym_b, grel, odom_noise))
-
-            if graph.size() < 2:
-                return {}
-
-            params = gtsam.LevenbergMarquardtParams()
-            params.setMaxIterations(20)
-            opt    = gtsam.LevenbergMarquardtOptimizer(graph, initials, params)
-            result = opt.optimize()
-
-            optimized = {}
-            for i, kf in enumerate(self.keyframes):
-                sym = gtsam.symbol_shorthand.X(i)
-                if result.exists(sym):
-                    gp = result.atPose3(sym)
-                    P  = np.eye(4)
-                    P[:3, :3] = gp.rotation().matrix()
-                    P[:3,  3] = gp.translation()
-                    # Sanity check — reject if pose jumped >10m from initial
-                    if np.linalg.norm(P[:3, 3] - kf['pose'][:3, 3]) < 10.0:
-                        optimized[kf['idx']] = P
-            return optimized
-
-        except Exception as e:
-            print(f"   [LBA] Optimization failed: {e} — continuing with unoptimized poses")
-            return {}
 
 
 class ImprovedVisualSLAM:
@@ -208,15 +59,6 @@ class ImprovedVisualSLAM:
         # Camera intrinsics for PnP
         self.camera_matrix = self.left_camera.intrinsics_from_cahv()
         self.dist_coeffs = np.zeros((4, 1))  # Assuming no distortion
-
-        # Phase 1 Fix 3: rotation continuity history (last 10 accepted rotations)
-        self.rotation_history: deque = deque(maxlen=10)
-
-        # Phase 2: keyframe manager
-        self.keyframe_manager = KeyframeManager(min_translation=0.05, min_rotation_deg=1.0)
-
-        # Phase 3: local bundle adjuster
-        self.local_ba = LocalBundleAdjuster(window_size=8, camera_matrix=self.camera_matrix)
 
         print("Working Visual SLAM Initialized")
         print(f"   Working parameters: Ready")
@@ -391,7 +233,7 @@ class ImprovedVisualSLAM:
                 self.camera_matrix,
                 self.dist_coeffs,
                 iterationsCount=1000,
-                reprojectionError=2.0,
+                reprojectionError=8.0,
                 confidence=0.99
             )
 
@@ -605,21 +447,6 @@ class ImprovedVisualSLAM:
                     translation, rotation, pose_summary = translation_kabsch, rotation_kabsch, pose_summary_kabsch
                     chosen_method = "Kabsch+RANSAC"
 
-                # ── Phase 1 Fix 3: rotation continuity check ──────────────────
-                rotation_angle_raw = float(
-                    np.arccos(np.clip((np.trace(rotation) - 1) / 2, -1, 1)) * 180 / np.pi
-                )
-                if (len(self.rotation_history) >= 5 and
-                        rotation_angle_raw > (np.mean(self.rotation_history) +
-                                              3 * np.std(self.rotation_history))):
-                    fn = (frame_info or {}).get('frame_t1_number', '?')
-                    print(f"   [WARN] Rotation outlier rejected at frame {fn}: "
-                          f"{rotation_angle_raw:.2f}deg vs mean "
-                          f"{np.mean(self.rotation_history):.2f}deg")
-                    rotation = self.trajectory[-1][:3, :3].copy()  # reuse last accepted
-
-                self.rotation_history.append(rotation_angle_raw)
-
                 # ── CAHV-frame → rover body frame ─────────────────────────────
                 # CAHV optical axis A=[0,0,1] is body +Z; rover forward is body +X.
                 # Kabsch gives scene motion → invert to get camera motion.
@@ -641,7 +468,7 @@ class ImprovedVisualSLAM:
                     np.arccos(np.clip((np.trace(rotation) - 1) / 2, -1, 1)) * 180 / np.pi
                 )
 
-                # ── Phase 1 Fix 1: stationary startup detection ───────────────
+                # ── Fix 1: stationary startup detection ───────────────────────
                 if translation_norm < 0.01 and rotation_angle < 0.5:
                     chosen_method = "skipped_stationary"
                     print(f"   [INFO] Stationary frame skipped "
@@ -650,32 +477,7 @@ class ImprovedVisualSLAM:
                     self.current_pose = self.current_pose @ transform
 
                 self.trajectory.append(self.current_pose.copy())
-
-                # ── Phase 2: keyframe selection ───────────────────────────────
-                is_keyframe = self.keyframe_manager.is_keyframe(translation_norm, rotation_angle)
-                if is_keyframe:
-                    kf_idx = len(self.trajectory) - 1
-                    self.keyframe_manager.add_frame(
-                        kf_idx, self.current_pose,
-                        points_3d_t1,
-                        left_desc_t1
-                    )
-                    # ── Phase 3: local bundle adjustment ──────────────────────
-                    num_inliers_val = pose_summary.get('num_inliers', 0)
-                    reproj_err_val  = pose_summary.get('reprojection_error', 1.0)
-                    self.local_ba.add_keyframe(
-                        kf_idx, self.current_pose,
-                        points_3d_t1,
-                        [info['kp_t1_pt'] for info in correspondence_info],
-                        self.camera_matrix
-                    )
-                    optimized = self.local_ba.optimize()
-                    if optimized:
-                        for tidx, opt_pose in optimized.items():
-                            if 0 <= tidx < len(self.trajectory):
-                                self.trajectory[tidx] = opt_pose
-                        if kf_idx in optimized:
-                            self.current_pose = optimized[kf_idx]
+                is_keyframe = False  # placeholder — keyframe manager removed
 
                 try:
                     rotation_vector, _ = cv.Rodrigues(rotation.astype(np.float64))
