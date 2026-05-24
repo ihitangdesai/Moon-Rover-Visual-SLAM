@@ -83,7 +83,7 @@ class DatasetAdaptiveParameters:
                 'triangulation_min_depth_mm': 1.0,
                 'correspondence_spatial_threshold_mm': 5000.0,
                 'correspondence_descriptor_threshold': 500.0,
-                'ransac_threshold_mm': 1000.0,
+                'ransac_threshold_mm': 20.0,   # Phase 1 Fix 4: strict Kabsch fallback
                 'temporal_fundamental_threshold': 5.0,
             })
         elif self.baseline > 1000:

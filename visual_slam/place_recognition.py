@@ -3,6 +3,7 @@ PLACE RECOGNITION (SOLID - Single Responsibility Principle)
 """
 
 import numpy as np
+import warnings
 import cv2 as cv
 import time
 from typing import Tuple, List, Dict, Optional
@@ -281,3 +282,133 @@ class DescriptorBasedPlaceRecognition:
                 del self.place_clusters[place_id]
 
         self._update_search_index()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# PHASE 4 — BAG-OF-WORDS PLACE RECOGNIZER
+# ═══════════════════════════════════════════════════════════════════════
+
+class BagOfWordsPlaceRecognizer:
+    """
+    Bag-of-words place recognition using MiniBatchKMeans visual vocabulary
+    and TF-IDF weighted histogram matching.  Replaces descriptor-mean cosine
+    similarity for loop closure candidate retrieval.
+    Geometric verification (F-matrix RANSAC) is done downstream — this class
+    only handles retrieval, so min_score is permissive (0.15).
+    """
+
+    def __init__(self, vocab_size: int = 500,
+                 min_score: float = 0.15,
+                 min_frames_gap: int = 30):
+        self.vocab_size      = vocab_size
+        self.min_score       = min_score
+        self.min_frames_gap  = min_frames_gap
+
+        self.vocabulary      = None   # cluster centres (vocab_size × 128)
+        self.vocab_built     = False
+        self._build_after    = 50     # build after this many keyframes
+
+        # Per-frame TF histograms {frame_idx: np.ndarray(vocab_size)}
+        self._histograms: dict = {}
+        # IDF weights (updated incrementally)
+        self._doc_freq  = np.zeros(vocab_size, dtype=np.float64)
+        self._n_docs    = 0
+        # Buffer of raw descriptors before vocab is built
+        self._desc_buffer: list = []
+        self._frame_desc_buffer: list = []   # (frame_idx, descriptors) pairs
+
+    # ------------------------------------------------------------------
+    def build_vocabulary(self, all_descriptors: list) -> None:
+        """K-means on a random sample of up to 50 000 descriptors."""
+        from sklearn.cluster import MiniBatchKMeans
+
+        pool = np.vstack(all_descriptors).astype(np.float32)
+        if len(pool) > 50_000:
+            idx  = np.random.choice(len(pool), 50_000, replace=False)
+            pool = pool[idx]
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            km = MiniBatchKMeans(n_clusters=self.vocab_size,
+                                 random_state=42, n_init=3,
+                                 max_iter=100, batch_size=4096)
+            km.fit(pool)
+
+        self.vocabulary  = km.cluster_centers_.astype(np.float32)
+        self.vocab_built = True
+        print(f"[BoW] Vocabulary built: {self.vocab_size} words from {len(pool)} descriptors")
+
+        # Retroactively index buffered frames
+        for fidx, desc in self._frame_desc_buffer:
+            self._index_frame(fidx, desc)
+        self._frame_desc_buffer.clear()
+        self._desc_buffer.clear()
+
+    # ------------------------------------------------------------------
+    def _assign_words(self, descriptors: np.ndarray) -> np.ndarray:
+        """Assign each descriptor to nearest visual word (L2)."""
+        from sklearn.metrics.pairwise import euclidean_distances
+        desc = descriptors.astype(np.float32)
+        dists = euclidean_distances(desc, self.vocabulary)
+        return np.argmin(dists, axis=1)
+
+    def _build_tfidf(self, word_ids: np.ndarray) -> np.ndarray:
+        """Compute TF-IDF histogram for a frame."""
+        tf = np.bincount(word_ids, minlength=self.vocab_size).astype(np.float64)
+        tf /= (tf.sum() + 1e-9)
+        idf = np.log((self._n_docs + 1.0) / (self._doc_freq + 1.0))
+        vec = tf * idf
+        norm = np.linalg.norm(vec)
+        return vec / norm if norm > 1e-9 else vec
+
+    def _index_frame(self, frame_idx: int, descriptors: np.ndarray) -> None:
+        """Add a frame to the BoW index."""
+        if descriptors is None or len(descriptors) == 0:
+            return
+        word_ids = self._assign_words(descriptors)
+        # Update IDF counts
+        present  = np.unique(word_ids)
+        self._doc_freq[present] += 1.0
+        self._n_docs += 1
+        self._histograms[frame_idx] = self._build_tfidf(word_ids)
+
+    # ------------------------------------------------------------------
+    def add_frame(self, frame_idx: int, descriptors: np.ndarray) -> None:
+        """Add frame descriptors to the recognizer."""
+        if descriptors is None or len(descriptors) == 0:
+            return
+
+        if not self.vocab_built:
+            self._desc_buffer.append(descriptors)
+            self._frame_desc_buffer.append((frame_idx, descriptors))
+            # Build vocabulary once we have enough keyframes
+            if len(self._frame_desc_buffer) >= self._build_after:
+                self.build_vocabulary(self._desc_buffer)
+        else:
+            self._index_frame(frame_idx, descriptors)
+
+    # ------------------------------------------------------------------
+    def query(self, descriptors: np.ndarray,
+              current_frame_idx: int) -> list:
+        """
+        Return up to 5 candidate (frame_idx, score) pairs with
+        score > min_score and frame gap > min_frames_gap, sorted by score desc.
+        """
+        if not self.vocab_built or len(self._histograms) == 0:
+            return []
+        if descriptors is None or len(descriptors) == 0:
+            return []
+
+        word_ids  = self._assign_words(descriptors)
+        query_vec = self._build_tfidf(word_ids)
+
+        results = []
+        for fidx, hist in self._histograms.items():
+            if abs(current_frame_idx - fidx) < self.min_frames_gap:
+                continue
+            score = float(np.dot(query_vec, hist))
+            if score >= self.min_score:
+                results.append((fidx, score))
+
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:5]
