@@ -21,6 +21,7 @@ Camera (from LuSNAR README):
 import matplotlib
 matplotlib.use('Agg')   # MUST be first — headless, no display
 
+import argparse
 import numpy as np
 import cv2
 import json
@@ -37,12 +38,9 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
-# ── Output / dataset paths ─────────────────────────────────────────────────────
-OUTPUT_DIR   = Path("/media/hitang-desai/T7 Shield/slam_analysis/dev_run")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-DATASET_PATH = "/media/hitang-desai/T7 Shield/LuSNAR/Moon_1"
-GT_FILE      = f"{DATASET_PATH}/gt.txt"
+# ── Defaults (overridden by CLI args) ─────────────────────────────────────────
+_DEFAULT_DATASET = "/media/hitang-desai/T7 Shield/LuSNAR/Moon_1"
+_DEFAULT_OUTPUT  = "/media/hitang-desai/T7 Shield/slam_analysis/dev_run"
 
 # ── Camera — LuSNAR stereo spec → CAHV ────────────────────────────────────────
 _F  = 610.17784
@@ -309,13 +307,14 @@ def pipeline_breakdown(records):
 # PLOTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _savefig(fig, name):
-    fig.savefig(OUTPUT_DIR / name, dpi=120, bbox_inches='tight')
+def _savefig(fig, name, output_dir=None):
+    out = Path(output_dir) if output_dir else Path(".")
+    fig.savefig(out / name, dpi=120, bbox_inches='tight')
     plt.close('all')
     print(f"  Saved: {name}")
 
 
-def plot_trajectory_top_down(gt_poses, est_traj, ate_errs, lc_frames, spike_frames):
+def plot_trajectory_top_down(gt_poses, est_traj, ate_errs, lc_frames, spike_frames, output_dir=None):
     fig, ax = plt.subplots(figsize=(12, 9))
     gx = [p[0, 3] for p in gt_poses]
     gz = [p[2, 3] for p in gt_poses]
@@ -351,10 +350,10 @@ def plot_trajectory_top_down(gt_poses, est_traj, ate_errs, lc_frames, spike_fram
     ax.set_xlabel('X (m)'); ax.set_ylabel('Z (m)')
     ax.set_title('Full Moon_1 Trajectory (top-down XZ)')
     ax.grid(True)
-    _savefig(fig, 'trajectory_top_down.png')
+    _savefig(fig, 'trajectory_top_down.png', output_dir)
 
 
-def plot_trajectory_3d(gt_poses, est_traj, ate_errs):
+def plot_trajectory_3d(gt_poses, est_traj, ate_errs, output_dir=None):
     fig = plt.figure(figsize=(12, 9))
     ax  = fig.add_subplot(111, projection='3d')
 
@@ -380,10 +379,10 @@ def plot_trajectory_3d(gt_poses, est_traj, ate_errs):
     ax.set_xlabel('X (m)'); ax.set_ylabel('Y (m)'); ax.set_zlabel('Z (m)')
     ax.set_title('3D Trajectory (coloured by ATE error)')
     ax.legend(fontsize=8)
-    _savefig(fig, 'trajectory_3d.png')
+    _savefig(fig, 'trajectory_3d.png', output_dir)
 
 
-def plot_ate_over_sequence(ate_errs, window_ate, lc_frames, spike_frames, failed_frames):
+def plot_ate_over_sequence(ate_errs, window_ate, lc_frames, spike_frames, failed_frames, output_dir=None):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=False)
     frames = np.arange(len(ate_errs))
 
@@ -415,10 +414,10 @@ def plot_ate_over_sequence(ate_errs, window_ate, lc_frames, spike_frames, failed
     ax2.grid(True, alpha=0.4, axis='y')
 
     fig.tight_layout()
-    _savefig(fig, 'ate_over_sequence.png')
+    _savefig(fig, 'ate_over_sequence.png', output_dir)
 
 
-def plot_rpe_analysis(rpe1_t, rpe1_r, rpe10_t, rpe10_r):
+def plot_rpe_analysis(rpe1_t, rpe1_r, rpe10_t, rpe10_r, output_dir=None):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
     ax1.plot(rpe1_t,  'b-',  linewidth=0.8, alpha=0.8, label='Stride-1')
@@ -441,10 +440,10 @@ def plot_rpe_analysis(rpe1_t, rpe1_r, rpe10_t, rpe10_r):
     ax2.set_title('RPE — Rotation'); ax2.legend(); ax2.grid(True, alpha=0.4)
 
     fig.tight_layout()
-    _savefig(fig, 'rpe_analysis.png')
+    _savefig(fig, 'rpe_analysis.png', output_dir)
 
 
-def plot_pipeline_health(records):
+def plot_pipeline_health(records, output_dir=None):
     success = [r for r in records if r['success']]
     n = len(records)
     idxs = [r['pair_idx'] for r in success]
@@ -501,10 +500,10 @@ def plot_pipeline_health(records):
     ax.grid(True, alpha=0.3, axis='y')
 
     fig.tight_layout()
-    _savefig(fig, 'pipeline_health.png')
+    _savefig(fig, 'pipeline_health.png', output_dir)
 
 
-def plot_failure_analysis(records):
+def plot_failure_analysis(records, output_dir=None):
     failed = [r for r in records if not r['success']]
     stage_counts = Counter(r['failure_stage'] for r in failed)
 
@@ -546,10 +545,10 @@ def plot_failure_analysis(records):
     ax2.grid(True, alpha=0.3, axis='x')
 
     fig.tight_layout()
-    _savefig(fig, 'failure_analysis.png')
+    _savefig(fig, 'failure_analysis.png', output_dir)
 
 
-def plot_scale_drift(est_traj, gt_aligned):
+def plot_scale_drift(est_traj, gt_aligned, output_dir=None):
     pos_e = np.array([p[:3, 3] for p in est_traj])
     pos_g = np.array([p[:3, 3] for p in gt_aligned[:len(est_traj)]])
 
@@ -578,11 +577,11 @@ def plot_scale_drift(est_traj, gt_aligned):
     ax2.legend(fontsize=8); ax2.grid(True, alpha=0.4)
 
     fig.tight_layout()
-    _savefig(fig, 'scale_drift.png')
+    _savefig(fig, 'scale_drift.png', output_dir)
     return scale
 
 
-def plot_loop_closure_map(est_traj, lc_records, missed_lc):
+def plot_loop_closure_map(est_traj, lc_records, missed_lc, output_dir=None):
     pos = np.array([p[:3, 3] for p in est_traj])
     fig, ax = plt.subplots(figsize=(12, 9))
 
@@ -618,10 +617,10 @@ def plot_loop_closure_map(est_traj, lc_records, missed_lc):
     ax.set_xlabel('X (m)'); ax.set_ylabel('Z (m)')
     ax.set_title('Loop Closure Map')
     ax.grid(True, alpha=0.4)
-    _savefig(fig, 'loop_closure_map.png')
+    _savefig(fig, 'loop_closure_map.png', output_dir)
 
 
-def plot_processing_time(records):
+def plot_processing_time(records, output_dir=None):
     times  = [(r['pair_idx'], r['processing_time_s']) for r in records
                if not np.isnan(r.get('processing_time_s', float('nan')))]
     if not times:
@@ -644,7 +643,7 @@ def plot_processing_time(records):
     ax.set_title('Per-frame processing time')
     ax.legend(fontsize=9); ax.grid(True, alpha=0.3, axis='y')
     fig.tight_layout()
-    _savefig(fig, 'processing_time.png')
+    _savefig(fig, 'processing_time.png', output_dir)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1011,19 +1010,72 @@ def build_report(
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def parse_args():
+    p = argparse.ArgumentParser(
+        description="SLAM Diagnostic Analysis — LuSNAR Moon_1",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p.add_argument(
+        "--dataset", "-d",
+        default=_DEFAULT_DATASET,
+        help="Path to the LuSNAR Moon_1 dataset root directory",
+    )
+    p.add_argument(
+        "--output", "-o",
+        default=_DEFAULT_OUTPUT,
+        help="Output directory for all diagnostics, CSVs, images",
+    )
+    p.add_argument(
+        "--frames", "-n",
+        type=int,
+        default=None,
+        help="Number of frames to process (default: all). E.g. --frames 100",
+    )
+    p.add_argument(
+        "--start", "-s",
+        type=int,
+        default=0,
+        help="Start frame index (0-based)",
+    )
+    p.add_argument(
+        "--no-loop-closure",
+        action="store_true",
+        help="Disable loop closure detection",
+    )
+    p.add_argument(
+        "--no-gtsam",
+        action="store_true",
+        help="Use custom least-squares optimizer instead of GTSAM",
+    )
+    return p.parse_args()
+
+
 def main():
+    args = parse_args()
+
+    OUTPUT_DIR   = Path(args.output)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    DATASET_PATH = args.dataset
+    GT_FILE      = f"{DATASET_PATH}/gt.txt"
+
     run_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print("=" * 70)
     print("SLAM DIAGNOSTIC ANALYSIS — LuSNAR Moon_1 Full Sequence")
     print("=" * 70)
+    print(f"  Dataset : {DATASET_PATH}")
+    print(f"  Output  : {OUTPUT_DIR}")
+    print(f"  Frames  : {args.frames if args.frames else 'all'}")
+    print(f"  Start   : {args.start}")
+    print(f"  GTSAM   : {'no' if args.no_gtsam else 'yes'}")
+    print(f"  Loop closure: {'no' if args.no_loop_closure else 'yes'}")
 
     # ── Load SLAM package ────────────────────────────────────────────────────
     from visual_slam.slam_enhanced import EnhancedVisualSLAMWithLoopClosure
 
     # ── Build loader ─────────────────────────────────────────────────────────
-    loader = LuSNARLoader(DATASET_PATH)   # all 1094 frames
+    loader = LuSNARLoader(DATASET_PATH, num_frames=(args.start + args.frames) if args.frames else None)
     image_timestamps = [p['frame_number'] for p in loader.stereo_pairs]
-    total_pairs = len(loader) - 1  # 1093
+    total_pairs = len(loader) - 1
 
     # ── Load GT ──────────────────────────────────────────────────────────────
     print("\nLoading ground truth...")
@@ -1044,18 +1096,19 @@ def main():
     cv2.setRNGSeed(42)
     slam = EnhancedVisualSLAMWithLoopClosure(
         LEFT_CAHV, RIGHT_CAHV,
-        use_gtsam=True,
-        enable_loop_closure=True,
+        use_gtsam=not args.no_gtsam,
+        enable_loop_closure=not args.no_loop_closure,
         show_lines=False,
         output_dir=OUTPUT_DIR,
         initial_pose=initial_pose,
     )
 
-    # ── Run full sequence ────────────────────────────────────────────────────
-    print(f"\nRunning full sequence: {total_pairs} frame pairs...")
+    # ── Run sequence ─────────────────────────────────────────────────────────
+    print(f"\nRunning {total_pairs} frame pairs...")
     start_wall = time.time()
 
-    consecutive_pairs = loader.get_consecutive_pairs(start_index=0, count=None)
+    consecutive_pairs = loader.get_consecutive_pairs(start_index=args.start, count=args.frames)
+    total_pairs = len(consecutive_pairs)
     sequence_results  = []
 
     for i, pair_data in enumerate(consecutive_pairs):
@@ -1267,15 +1320,15 @@ def main():
 
     # ── Plots ─────────────────────────────────────────────────────────────────
     print("\nGenerating plots...")
-    plot_trajectory_top_down(gt_aligned, est_trajectory, ate_errors, lc_frames, spike_frames)
-    plot_trajectory_3d(gt_aligned, est_trajectory, ate_errors)
-    plot_ate_over_sequence(ate_errors, window_ate, lc_frames, spike_frames, failed_fr)
-    plot_rpe_analysis(rpe1_t, rpe1_r, rpe10_t, rpe10_r)
-    plot_pipeline_health(per_frame_records)
-    plot_failure_analysis(per_frame_records)
-    scale_arr = plot_scale_drift(est_trajectory, gt_aligned)
-    plot_loop_closure_map(est_trajectory, [r for r in per_frame_records if r['loop_closure_detected']], missed_lc)
-    plot_processing_time(per_frame_records)
+    plot_trajectory_top_down(gt_aligned, est_trajectory, ate_errors, lc_frames, spike_frames, OUTPUT_DIR)
+    plot_trajectory_3d(gt_aligned, est_trajectory, ate_errors, OUTPUT_DIR)
+    plot_ate_over_sequence(ate_errors, window_ate, lc_frames, spike_frames, failed_fr, OUTPUT_DIR)
+    plot_rpe_analysis(rpe1_t, rpe1_r, rpe10_t, rpe10_r, OUTPUT_DIR)
+    plot_pipeline_health(per_frame_records, OUTPUT_DIR)
+    plot_failure_analysis(per_frame_records, OUTPUT_DIR)
+    scale_arr = plot_scale_drift(est_trajectory, gt_aligned, OUTPUT_DIR)
+    plot_loop_closure_map(est_trajectory, [r for r in per_frame_records if r['loop_closure_detected']], missed_lc, OUTPUT_DIR)
+    plot_processing_time(per_frame_records, OUTPUT_DIR)
 
     # ── Diagnostic report ─────────────────────────────────────────────────────
     print("\nBuilding diagnostic report...")
