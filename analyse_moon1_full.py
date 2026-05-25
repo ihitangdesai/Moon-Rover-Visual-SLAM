@@ -1248,6 +1248,99 @@ def main():
         r['rpe1_rot_deg']  = float(rpe1_r[idx])       if idx < len(rpe1_r)    else float('nan')
         r['scale_ratio']   = float(scale[idx])         if idx < len(scale)     else float('nan')
 
+    # ── Save trajectory comparison TXT ──────────────────────────────────────
+    traj_path = OUTPUT_DIR / 'trajectory_comparison.txt'
+    from scipy.spatial.transform import Rotation as _Rot
+    with open(traj_path, 'w') as f:
+        # Header
+        f.write("=" * 120 + "\n")
+        f.write("PER-FRAME TRAJECTORY COMPARISON: Estimated vs Ground Truth\n")
+        f.write("Columns: frame | EST tx ty tz | GT tx ty tz | "
+                "pos_err(m) | EST yaw(°) | GT yaw(°) | yaw_diff(°) | "
+                "est_step(m) | gt_step(m) | sharp_turn | ate(m)\n")
+        f.write("sharp_turn = estimated yaw change > 5° in one frame\n")
+        f.write("=" * 120 + "\n\n")
+
+        est_pos  = np.array([p[:3, 3] for p in est_trajectory])
+        gt_pos   = np.array([p[:3, 3] for p in gt_aligned])
+
+        def _yaw(pose):
+            """Yaw (rotation around world Z) in degrees."""
+            try:
+                r = _Rot.from_matrix(pose[:3, :3])
+                return float(r.as_euler('zyx', degrees=True)[0])
+            except Exception:
+                return 0.0
+
+        prev_est_yaw = _yaw(est_trajectory[0])
+        prev_gt_yaw  = _yaw(gt_aligned[0])
+
+        for i in range(N):
+            est_p  = est_trajectory[i]
+            gt_p   = gt_aligned[i]
+            ex, ey, ez = est_p[0,3], est_p[1,3], est_p[2,3]
+            gx, gy, gz = gt_p[0,3],  gt_p[1,3],  gt_p[2,3]
+            pos_err = float(ate_errors[i])
+
+            est_yaw = _yaw(est_p)
+            gt_yaw  = _yaw(gt_p)
+            yaw_diff = est_yaw - gt_yaw
+
+            # Step sizes
+            if i > 0:
+                est_step = float(np.linalg.norm(est_pos[i] - est_pos[i-1]))
+                gt_step  = float(np.linalg.norm(gt_pos[i]  - gt_pos[i-1]))
+                est_yaw_change = abs(est_yaw - prev_est_yaw)
+                gt_yaw_change  = abs(gt_yaw  - prev_gt_yaw)
+            else:
+                est_step = gt_step = 0.0
+                est_yaw_change = gt_yaw_change = 0.0
+
+            # Sharp turn flag: estimated yaw changed >5° but GT didn't (>2°)
+            sharp_turn = (est_yaw_change > 5.0 and gt_yaw_change < 2.0)
+
+            flag = " <<< SHARP TURN (not in GT)" if sharp_turn else ""
+
+            f.write(
+                f"frame {i:04d} | "
+                f"EST [{ex:8.3f} {ey:8.3f} {ez:8.3f}] | "
+                f"GT  [{gx:8.3f} {gy:8.3f} {gz:8.3f}] | "
+                f"err={pos_err:6.3f}m | "
+                f"est_yaw={est_yaw:7.2f}° | "
+                f"gt_yaw={gt_yaw:7.2f}° | "
+                f"yaw_diff={yaw_diff:7.2f}° | "
+                f"est_step={est_step:.3f}m | "
+                f"gt_step={gt_step:.3f}m"
+                f"{flag}\n"
+            )
+
+            prev_est_yaw = est_yaw
+            prev_gt_yaw  = gt_yaw
+
+        # Summary of sharp turns
+        f.write("\n" + "=" * 120 + "\n")
+        f.write("SHARP TURN SUMMARY (est yaw change >5° when GT yaw change <2°):\n")
+        f.write("=" * 120 + "\n")
+        prev_est_yaw = _yaw(est_trajectory[0])
+        prev_gt_yaw  = _yaw(gt_aligned[0])
+        sharp_count = 0
+        for i in range(1, N):
+            est_yaw = _yaw(est_trajectory[i])
+            gt_yaw  = _yaw(gt_aligned[i])
+            est_yaw_change = abs(est_yaw - prev_est_yaw)
+            gt_yaw_change  = abs(gt_yaw  - prev_gt_yaw)
+            if est_yaw_change > 5.0 and gt_yaw_change < 2.0:
+                f.write(f"  Frame {i:04d}: est yaw changed {est_yaw_change:.2f}°, "
+                        f"GT changed {gt_yaw_change:.2f}°, "
+                        f"ATE={float(ate_errors[i]):.3f}m\n")
+                sharp_count += 1
+            prev_est_yaw = est_yaw
+            prev_gt_yaw  = gt_yaw
+        if sharp_count == 0:
+            f.write("  None detected.\n")
+
+    print(f"  Trajectory comparison saved: {traj_path}")
+
     # ── Save CSV ─────────────────────────────────────────────────────────────
     csv_path = OUTPUT_DIR / 'per_frame_diagnostics.csv'
     fieldnames = [
