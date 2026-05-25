@@ -55,6 +55,7 @@ class ImprovedVisualSLAM:
             self.current_pose[:3, 3] = np.array(left_cahv['C']) / 1000.0
         self.trajectory = [self.current_pose.copy()]
         self.frame_results = []
+        self._motion_started = False
 
         # Camera intrinsics for PnP
         self.camera_matrix = self.left_camera.intrinsics_from_cahv()
@@ -469,10 +470,15 @@ class ImprovedVisualSLAM:
                 )
 
                 # ── Fix 1: stationary startup detection ───────────────────────
-                if translation_norm < 0.01 and rotation_angle < 0.5:
-                    chosen_method = "skipped_stationary"
-                    print(f"   [INFO] Stationary frame skipped "
-                          f"(t={translation_norm*1000:.1f}mm, r={rotation_angle:.3f}deg)")
+                if not self._motion_started:
+                    if translation_norm > 0.05 or rotation_angle > 1.0:
+                        self._motion_started = True
+                    if translation_norm < 0.01 and rotation_angle < 0.5:
+                        chosen_method = "skipped_stationary"
+                        print(f"   [INFO] Stationary frame skipped "
+                              f"(t={translation_norm*1000:.1f}mm, r={rotation_angle:.3f}deg)")
+                    else:
+                        self.current_pose = self.current_pose @ transform
                 else:
                     self.current_pose = self.current_pose @ transform
 
