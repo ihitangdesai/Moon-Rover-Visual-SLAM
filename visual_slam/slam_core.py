@@ -22,7 +22,8 @@ class ImprovedVisualSLAM:
     """Improved Visual SLAM System with working parameters and PnP comparison"""
 
     def __init__(self, left_cahv: Dict, right_cahv: Dict, show_lines: bool = False,
-                 output_dir=None, initial_pose: np.ndarray = None):
+                 output_dir=None, initial_pose: np.ndarray = None,
+                 T_sensor_to_world: np.ndarray = None):
         """Initialize improved Visual SLAM system."""
 
         self.left_camera = CAHVCamera(
@@ -46,13 +47,21 @@ class ImprovedVisualSLAM:
 
         self.show_lines = show_lines
 
-        # Initialize pose — use provided initial_pose (world frame) if given,
-        # otherwise start at identity (body frame = world frame at t=0).
+        # T_sensor_to_world: optional extrinsic transform from sensor odometry frame
+        # to world/body frame. If None, assumes sensor frame = world frame (identity).
+        # For LuSNAR: pass the camera-to-rover transform from the dataset config.
+        if T_sensor_to_world is not None:
+            self._T_sensor_to_world = np.array(T_sensor_to_world, dtype=np.float64)
+        else:
+            self._T_sensor_to_world = np.eye(4, dtype=np.float64)
+
+        self._T_world_to_sensor = np.linalg.inv(self._T_sensor_to_world)
+
         if initial_pose is not None:
             self.current_pose = np.array(initial_pose, dtype=np.float64)
         else:
-            self.current_pose = np.eye(4)
-            self.current_pose[:3, 3] = np.array(left_cahv['C']) / 1000.0
+            self.current_pose = self._T_sensor_to_world.copy()
+
         self.trajectory = [self.current_pose.copy()]
         self.frame_results = []
         self._motion_started = False
@@ -452,21 +461,17 @@ class ImprovedVisualSLAM:
                     translation, rotation, pose_summary = translation_kabsch, rotation_kabsch, pose_summary_kabsch
                     chosen_method = "Kabsch+RANSAC"
 
-                # ── CAHV-frame → rover body frame ─────────────────────────────
-                # CAHV optical axis A=[0,0,1] is body +Z; rover forward is body +X.
+                # ── Sensor-frame delta → world/body frame ─────────────────────
                 # Kabsch gives scene motion → invert to get camera motion.
                 # PnP already gives camera motion (inverted internally).
-                _R_cahv_to_body = np.array([[0., 0., 1.],
-                                            [0., 1., 0.],
-                                            [-1., 0., 0.]])
-                _T_cahv = np.eye(4)
-                _T_cahv[:3, :3] = rotation
-                _T_cahv[:3, 3] = translation
+                _T_sensor = np.eye(4)
+                _T_sensor[:3, :3] = rotation
+                _T_sensor[:3, 3] = translation
                 if chosen_method == "Kabsch+RANSAC":
-                    _T_cahv = np.linalg.inv(_T_cahv)
-                transform = np.eye(4)
-                transform[:3, :3] = _R_cahv_to_body @ _T_cahv[:3, :3] @ _R_cahv_to_body.T
-                transform[:3, 3] = _R_cahv_to_body @ _T_cahv[:3, 3]
+                    _T_sensor = np.linalg.inv(_T_sensor)
+
+                # Transform delta from sensor frame to world/body frame using extrinsic
+                transform = self._T_sensor_to_world @ _T_sensor @ self._T_world_to_sensor
 
                 translation_norm = float(np.linalg.norm(translation))
                 rotation_angle = float(
@@ -482,9 +487,11 @@ class ImprovedVisualSLAM:
                         print(f"   [INFO] Stationary frame skipped "
                               f"(t={translation_norm*1000:.1f}mm, r={rotation_angle:.3f}deg)")
                     else:
-                        self.current_pose = self.current_pose @ transform
+                        delta_world = self._T_sensor_to_world @ _T_sensor @ self._T_world_to_sensor
+                        self.current_pose = self.current_pose @ delta_world
                 else:
-                    self.current_pose = self.current_pose @ transform
+                    delta_world = self._T_sensor_to_world @ _T_sensor @ self._T_world_to_sensor
+                    self.current_pose = self.current_pose @ delta_world
 
                 self.trajectory.append(self.current_pose.copy())
                 is_keyframe = False  # placeholder — keyframe manager removed

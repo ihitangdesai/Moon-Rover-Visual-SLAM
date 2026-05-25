@@ -1071,6 +1071,7 @@ def main():
 
     # ── Load SLAM package ────────────────────────────────────────────────────
     from visual_slam.slam_enhanced import EnhancedVisualSLAMWithLoopClosure
+    from visual_slam.datasets.lusnar_config import get_left_camera_extrinsic
 
     # ── Build loader ─────────────────────────────────────────────────────────
     loader = LuSNARLoader(DATASET_PATH, num_frames=(args.start + args.frames) if args.frames else None)
@@ -1101,6 +1102,7 @@ def main():
         show_lines=False,
         output_dir=OUTPUT_DIR,
         initial_pose=initial_pose,
+        T_sensor_to_world=get_left_camera_extrinsic(),
     )
 
     # ── Run sequence ─────────────────────────────────────────────────────────
