@@ -57,6 +57,10 @@ class ImprovedVisualSLAM:
         self.frame_results = []
         self._motion_started = False
 
+        from visual_slam.bundle_adjustment import LocalBundleAdjuster
+        self._ba = LocalBundleAdjuster(window_size=8, min_keyframes=3)
+        self._ba_enabled = True
+
         # Camera intrinsics for PnP
         self.camera_matrix = self.left_camera.intrinsics_from_cahv()
         self.dist_coeffs = np.zeros((4, 1))  # Assuming no distortion
@@ -484,6 +488,25 @@ class ImprovedVisualSLAM:
 
                 self.trajectory.append(self.current_pose.copy())
                 is_keyframe = False  # placeholder — keyframe manager removed
+
+                # ── BA: keyframe selection and pose correction ──────────────
+                if self._ba_enabled and chosen_method == "PnP+RANSAC":
+                    pts3 = np.array(corresponding_3d_t, dtype=np.float64) / 1000.0
+                    pts2 = np.array([info['kp_t1_pt'] for info in correspondence_info],
+                                    dtype=np.float64)
+                    if self._ba.is_keyframe(self.current_pose) and len(pts3) >= 4:
+                        self._ba.add_keyframe(
+                            frame_idx=len(self.trajectory) - 1,
+                            pose_4x4=self.current_pose.copy(),
+                            points_3d_m=pts3,
+                            points_2d=pts2,
+                            camera_matrix=self.camera_matrix
+                        )
+                        correction, ba_success = self._ba.get_pose_correction()
+                        if ba_success:
+                            self.current_pose = correction @ self.current_pose
+                            self.trajectory[-1] = self.current_pose.copy()
+                            # ↑ Only modifies trajectory[-1]. Never touches history.
 
                 try:
                     rotation_vector, _ = cv.Rodrigues(rotation.astype(np.float64))
