@@ -490,7 +490,8 @@ class ImprovedVisualSLAM:
                 is_keyframe = False  # placeholder — keyframe manager removed
 
                 # ── BA: keyframe selection and pose correction ──────────────
-                if self._ba_enabled and chosen_method == "PnP+RANSAC":
+                if (self._ba_enabled and chosen_method == "PnP+RANSAC"
+                        and self._motion_started and len(self.trajectory) > 30):
                     pts3 = np.array(corresponding_3d_t, dtype=np.float64) / 1000.0
                     pts2 = np.array([info['kp_t1_pt'] for info in correspondence_info],
                                     dtype=np.float64)

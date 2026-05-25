@@ -48,7 +48,7 @@ class LocalBundleAdjuster:
             np.clip((np.trace(rel_R) - 1.0) / 2.0, -1.0, 1.0)
         )) * 180.0 / np.pi
 
-        if trans > 0.05 or rot_deg > 1.0:
+        if trans > 0.15 or rot_deg > 1.0:
             self._last_kf_pose = current_pose.copy()
             return True
 
