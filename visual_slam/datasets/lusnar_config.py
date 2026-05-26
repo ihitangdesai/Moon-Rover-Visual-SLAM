@@ -33,7 +33,7 @@ def get_left_camera_extrinsic() -> np.ndarray:
                        [0., 1., 0.]], dtype=np.float64)
 
     # Step 2: -20° pitch around rover Y axis
-    pitch = np.radians(-20.0)
+    pitch = np.radians(-22.6)
     R_pitch = np.array([[ np.cos(pitch), 0., np.sin(pitch)],
                         [ 0.,            1., 0.            ],
                         [-np.sin(pitch), 0., np.cos(pitch)]], dtype=np.float64)
