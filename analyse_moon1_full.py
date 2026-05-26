@@ -1141,6 +1141,14 @@ def main():
     est_trajectory = [p.copy() for p in slam.trajectory]
     print(f"\nRun complete in {wall_time:.1f}s. Trajectory length: {len(est_trajectory)} poses.")
 
+    # ── Offline extrinsic calibration (prints optimal angles, does not modify pipeline) ──
+    try:
+        from visual_slam.datasets.lusnar_config import calibrate_extrinsic
+        print("\nRunning offline extrinsic calibration on first 50 motion frames...")
+        calibrate_extrinsic(est_trajectory, gt_per_image[1:], motion_frames=50)
+    except Exception as _ce:
+        print(f"  [calibrate_extrinsic] Skipped: {_ce}")
+
     # ── Build per-frame records ──────────────────────────────────────────────
     per_frame_records = []
     for i, result in enumerate(sequence_results):

@@ -33,7 +33,7 @@ def get_left_camera_extrinsic() -> np.ndarray:
                        [0., 1., 0.]], dtype=np.float64)
 
     # Step 2: -20° pitch around rover Y axis
-    pitch = np.radians(-22.6)
+    pitch = np.radians(-20.0)
     R_pitch = np.array([[ np.cos(pitch), 0., np.sin(pitch)],
                         [ 0.,            1., 0.            ],
                         [-np.sin(pitch), 0., np.cos(pitch)]], dtype=np.float64)
@@ -64,3 +64,85 @@ RIGHT_CAHV = {
     'H': [FOCAL_LENGTH_PX, 0.0, IMAGE_WIDTH  / 2.0],
     'V': [0.0, FOCAL_LENGTH_PX, IMAGE_HEIGHT / 2.0],
 }
+
+
+# ══════════════════════════════════════════════════════════════════════
+# OFFLINE EXTRINSIC CALIBRATION
+# ══════════════════════════════════════════════════════════════════════
+
+def calibrate_extrinsic(est_trajectory: list, gt_trajectory: list,
+                        motion_frames: int = 50) -> np.ndarray:
+    """
+    Solve for the optimal rotation R that minimises alignment error between
+    estimated and GT motion directions over the first `motion_frames` moving
+    frames.
+
+    Strategy:
+      - Collect per-frame translation deltas from both EST and GT.
+      - Skip stationary frames (step < 0.01m in GT).
+      - Stack the direction vectors and solve R = argmin ||R @ est_dirs - gt_dirs||
+        using SVD (same as Kabsch/Umeyama for direction alignment).
+      - Decompose the resulting R into roll/pitch/yaw and print them.
+      - Return the full 4x4 T_cam_to_rover with mount translation from Fig. 5.
+
+    Usage (run once offline, then hardcode the printed angles):
+        from visual_slam.datasets.lusnar_config import calibrate_extrinsic
+        T = calibrate_extrinsic(slam.trajectory, gt_poses)
+    """
+    from scipy.spatial.transform import Rotation as _Rot
+
+    est_pos = np.array([p[:3, 3] for p in est_trajectory])
+    gt_pos  = np.array([p[:3, 3] for p in gt_trajectory[:len(est_trajectory)]])
+
+    # Collect motion direction pairs (skip stationary GT frames)
+    est_dirs, gt_dirs = [], []
+    collected = 0
+    for i in range(1, len(est_pos)):
+        gt_step  = gt_pos[i]  - gt_pos[i - 1]
+        est_step = est_pos[i] - est_pos[i - 1]
+        gt_norm  = np.linalg.norm(gt_step)
+        est_norm = np.linalg.norm(est_step)
+        if gt_norm < 0.01 or est_norm < 0.01:
+            continue
+        gt_dirs.append(gt_step   / gt_norm)
+        est_dirs.append(est_step / est_norm)
+        collected += 1
+        if collected >= motion_frames:
+            break
+
+    if collected < 5:
+        print(f"[calibrate_extrinsic] Only {collected} motion frames — not enough. "
+              f"Returning paper-spec extrinsic.")
+        return get_left_camera_extrinsic()
+
+    est_dirs = np.array(est_dirs)   # N x 3
+    gt_dirs  = np.array(gt_dirs)    # N x 3
+
+    # Kabsch SVD: find R such that R @ est_dirs[i] ≈ gt_dirs[i]
+    H   = est_dirs.T @ gt_dirs      # 3x3
+    U, S, Vt = np.linalg.svd(H)
+    R_opt = Vt.T @ U.T
+    # Ensure proper rotation (det = +1)
+    if np.linalg.det(R_opt) < 0:
+        Vt[-1, :] *= -1
+        R_opt = Vt.T @ U.T
+
+    # Decompose into Euler angles for inspection
+    euler = _Rot.from_matrix(R_opt).as_euler('zyx', degrees=True)
+    yaw, pitch, roll = euler[0], euler[1], euler[2]
+
+    print("=" * 60)
+    print("[calibrate_extrinsic] Optimal rotation found:")
+    print(f"  Roll  (X): {roll:.4f} deg  → np.radians({roll:.4f})")
+    print(f"  Pitch (Y): {pitch:.4f} deg  → np.radians({pitch:.4f})")
+    print(f"  Yaw   (Z): {yaw:.4f} deg  → np.radians({yaw:.4f})")
+    print(f"  Rotation matrix:\n{np.round(R_opt, 6)}")
+    print(f"  Used {collected} motion frames for calibration.")
+    print("  → Hardcode these angles in get_left_camera_extrinsic()")
+    print("=" * 60)
+
+    # Build full 4x4 T with paper-spec mount translation
+    T = np.eye(4, dtype=np.float64)
+    T[:3, :3] = R_opt
+    T[:3, 3]  = np.array([1.0, -0.155, -1.5])
+    return T
